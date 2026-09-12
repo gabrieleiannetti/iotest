@@ -33,9 +33,13 @@
 
 using namespace std::chrono;
 
-std::string_view version{
-#include "../VERSION"   
+std::string_view PROG_VERSION {
+#include "../VERSION"
 };
+
+constexpr bool is_minimum_cpp17() {
+    return __cplusplus >= 201703L;
+}
 
 typedef std::unique_ptr<char[]> uptr_char_array;
 
@@ -320,11 +324,11 @@ Args process_args(int argc, char *argv[])
                 sync_write = true;
                 break;
             case 'h':
-                std::cout << help_message << "\n";
+                std::cout << help_message << std::endl;
                 exit(0);
                 break;
             case 'v':
-                std::cout << "iotest " << version << "\n";
+                std::cout << "iotest " << PROG_VERSION << std::endl;
                 exit(0);
                 break;
             case '?':
@@ -551,6 +555,8 @@ IOTestResult run_io_test(const std::string& block,
 
 int main(int argc, char *argv[])
 {
+    static_assert(is_minimum_cpp17(), "Error: Minimum C++17 is required!");
+
     Args args = process_args(argc, argv);
 
     IOTestResult result = run_io_test(args.block_size,
