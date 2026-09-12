@@ -27,7 +27,7 @@
                      + __GNUC_MINOR__ * 100 \
                      + __GNUC_PATCHLEVEL__)
 
-#if GCC_VERSION < 40900
+#if GCC_VERSION < 110400
     #error "GCC version should be greater than 4.9.0 for regex support!"
 #endif
 
@@ -324,7 +324,7 @@ Args process_args(int argc, char *argv[])
                 exit(0);
                 break;
             case 'v':
-                std::cout << "iotest version " << version << "\n";
+                std::cout << "iotest " << version << "\n";
                 exit(0);
                 break;
             case '?':
