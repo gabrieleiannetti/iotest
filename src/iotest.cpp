@@ -28,7 +28,7 @@
                      + __GNUC_PATCHLEVEL__)
 
 #if GCC_VERSION < 110400
-    #error "GCC version should be greater than 4.9.0 for regex support!"
+    #error "Minium required GCC version is 11.4.0"
 #endif
 
 using namespace std::chrono;
@@ -267,7 +267,7 @@ Args process_args(int argc, char *argv[])
                                "-f FILEPATH\n"
                                "-s SEED NUMBER\n"
                                "-y SYNC ON WRITE\n"
-                               "-v CHECK VERSION";
+                               "-v PRINT VERSION";
 
     if(argc == 1) {
         std::cout << help_message << "\n";
@@ -352,12 +352,40 @@ uptr_char_array create_random_block(const std::size_t block_size)
     return block_data_ptr;
 }
 
-void read_file(const std::size_t block_size,
-               const std::size_t total_size,
+void process_read(const ssize_t block_size,
+                  const ssize_t total_size,
+                  const int fd,
+                  char* block_data,
+                  const bool enable_random)
+{
+    if(enable_random) {
+
+        const std::size_t limit = total_size - block_size;  // Guarantee that the read does not exceed the limit
+
+        const std::size_t seek_pos = std::rand() % (limit+1);
+        off_t offset = lseek(fd, seek_pos, SEEK_SET);
+
+        if(offset == -1)
+            throw std::runtime_error("Failed to seek: " + std::string(strerror(errno)));
+    }
+
+    ssize_t file_in = read(fd, block_data, block_size);
+
+    if (file_in == 0)
+        return;
+    else if (file_in == -1)
+        throw std::runtime_error("Failed reading data block: " + std::string(strerror(errno)));
+    else if (file_in < block_size)  // Should not happen during a test
+        throw std::runtime_error("Incomplete reading of data block");
+}
+
+void read_file(const ssize_t block_size,
+               const ssize_t total_size,
                const std::string& filepath,
                const bool enable_random)
 {
-    int fd = open(filepath.c_str(), O_RDONLY);
+
+    const int fd = open(filepath.c_str(), O_RDONLY);
     CloseFileHandler close_file(fd);
 
     if(fd < 0)
@@ -366,34 +394,40 @@ void read_file(const std::size_t block_size,
     uptr_char_array block_data(new char[block_size]);
 
     const std::size_t count = total_size / block_size;
-    const std::size_t limit = total_size - block_size;
+    const std::size_t rest_size = total_size % block_size;
 
-    std::size_t seek_pos = -1;
+    for(std::size_t i = 0; i < count; i++)
+        process_read(block_size, total_size, fd, block_data.get(), enable_random);
 
-    for(std::size_t i = 0; i < count; i++) {
-
-        if(enable_random) {
-
-            seek_pos = std::rand() % (limit+1);
-            off_t offset = lseek(fd, seek_pos, SEEK_SET);
-
-            if(offset == -1)
-                throw std::runtime_error("Failed to seek: " + std::string(strerror(errno)));
-        }
-
-        ssize_t file_in = read(fd, block_data.get(), block_size);
-
-        if(file_in > 0)
-            continue;
-        else if(file_in < 0)
-            throw std::runtime_error("Failed reading data block: " + std::string(strerror(errno)));
-        else
-            return;
-    }
+    if(rest_size)
+        process_read(rest_size, total_size, fd, block_data.get(), enable_random);
 }
 
-void write_file(const std::size_t block_size,
-                const std::size_t total_size,
+void process_write(const ssize_t block_size,
+                   const ssize_t total_size,
+                   const int fd,
+                   char* block_data,
+                   const bool enable_random)
+{
+    if(enable_random) {
+
+        const std::size_t limit = total_size - block_size;  // Guarantee that the read does not exceed the limit
+
+        const std::size_t seek_pos = std::rand() % (limit+1);
+        off_t offset = lseek(fd, seek_pos, SEEK_SET);
+
+        if(offset == -1)
+            throw std::runtime_error("Failed to seek: " + std::string(strerror(errno)));
+    }
+
+    ssize_t file_out = write(fd, block_data, block_size);
+
+    if(file_out < block_size)
+        throw std::runtime_error("Failed or incomplete writing data block: " + std::string(strerror(errno)));
+}
+
+void write_file(const ssize_t block_size,
+                const ssize_t total_size,
                 const std::string& filepath,
                 const bool sync_write,
                 const bool enable_random)
@@ -402,6 +436,11 @@ void write_file(const std::size_t block_size,
 
     if(enable_random == false)
         flags = flags | O_CREAT | O_TRUNC | O_APPEND;
+
+    // TODO: See issue https://github.com/GSI-HPC/iotest/issues/4
+    //
+    // if(enable_random == true)
+    //     check if file exists and has file size equal to total_size
 
     if(sync_write)
         flags = flags | O_SYNC;
@@ -415,26 +454,13 @@ void write_file(const std::size_t block_size,
     uptr_char_array block_data = create_random_block(block_size);
 
     const std::size_t count = total_size / block_size;
-    const std::size_t limit = total_size - block_size;
+    const std::size_t rest_size = total_size % block_size;
 
-    std::size_t seek_pos = -1;
+    for(std::size_t i = 0; i < count; i++)
+        process_write(block_size, total_size, fd, block_data.get(), enable_random);
 
-    for(std::size_t i = 0; i < count; i++) {
-
-        if(enable_random) {
-
-            seek_pos = std::rand() % (limit+1);
-            off_t offset = lseek(fd, seek_pos, SEEK_SET);
-
-            if(offset == -1)
-                throw std::runtime_error("Failed to seek: " + std::string(strerror(errno)));
-        }
-
-        ssize_t file_out = write(fd, block_data.get(), block_size);
-
-        if(file_out < 0)
-            throw std::runtime_error("Failed writing data block: " + std::string(strerror(errno)));
-    }
+    if(rest_size)
+        process_write(rest_size, total_size, fd, block_data.get(), enable_random);
 }
 
 IOTestResult run_io_test(const std::string& block,
@@ -450,9 +476,6 @@ IOTestResult run_io_test(const std::string& block,
 
     if(block_size > 1073741824)
         throw std::runtime_error("Max block size is 1GiB!");
-
-    if(total_size % block_size)
-        throw std::runtime_error("Block size must be multiple of total size!");
 
     std::size_t elapsed_time = 0;
     std::size_t throughput_mb_per_sec = 0;
