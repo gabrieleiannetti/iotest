@@ -1,5 +1,6 @@
 // -*- coding: utf-8 -*-
 //
+// © Copyright 2026 Gabriele Iannetti
 // © Copyright 2023 GSI Helmholtzzentrum für Schwerionenforschung
 //
 // This software is distributed under
